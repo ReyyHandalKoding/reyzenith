@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>REYZENITH: ABSOLUTE SINGULARITY (v34.0)</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Syncopate:wght@700&family=Share+Tech+Mono&display=swap');
+        body { margin: 0; background: #000; overflow: hidden; font-family: 'Share Tech Mono', monospace; color: #fff; touch-action: none; }
+        canvas { display: block; filter: contrast(1.2) brightness(1.1) saturate(1.4); }
+
+        /* --- UI OVERLAY --- */
+        #hud { position: absolute; inset: 0; pointer-events: none; padding: 20px; z-index: 100; }
+        .bar-wrap { width: 200px; height: 8px; background: rgba(255,255,255,0.05); margin-bottom: 5px; border-radius: 4px; border: 1px solid #333; overflow: hidden; }
+        #hp-f { height: 100%; background: #f05; width: 100%; transition: 0.2s; box-shadow: 0 0 10px #f05; }
+        #en-f { height: 100%; background: #0cf; width: 100%; transition: 0.1s; }
+        
+        .status-area { display: flex; gap: 8px; margin-top: 10px; }
+        .badge { padding: 4px 12px; font-size: 10px; font-weight: bold; border: 1px solid #fff; text-transform: uppercase; }
+        #elem-tag { background: #ff4500; color: #000; }
+
+        #rank-box { position: absolute; top: 20px; right: 20px; text-align: right; }
+        .rank-text { font-family: 'Syncopate'; font-size: 14px; color: #ff0; }
+
+        /* --- MOBILE CONTROLS --- */
+        #m-ctrl { position: absolute; bottom: 30px; width: 100%; display: none; justify-content: space-between; padding: 0 30px; pointer-events: auto; }
+        .btn { width: 55px; height: 55px; border-radius: 12px; border: 1px solid #0f0; background: rgba(0,255,100,0.1); display: flex; align-items: center; justify-content: center; font-size: 9px; font-family: 'Syncopate'; }
+
+        @media (max-width: 900px) { #m-ctrl { display: flex; } }
+    </style>
+</head>
+<body>
+
+<div id="hud">
+    <div style="font-family:'Syncopate'; font-size: 18px; color: #0f0;">REYZENITH_ABS_v34</div>
+    <div style="color:#ff0; font-size: 12px; margin: 4px 0;">GOLD: <span id="gold">0</span></div>
+    
+    <div class="bar-wrap"><div id="hp-f"></div></div>
+    <div class="bar-wrap" style="height:3px;"><div id="en-f"></div></div>
+    
+    <div class="status-area">
+        <div id="elem-tag" class="badge">API</div>
+        <div id="mnt-tag" class="badge" style="display:none; background:#0cf; color:#000;">MOUNT</div>
+        <div id="time-tag" class="badge" style="display:none; background:#fff; color:#000;">SLOW-MO</div>
+    </div>
+
+    <div id="rank-box">
+        <div class="rank-text" id="rank-name">BRONZE CITIZEN</div>
+        <div style="font-size: 9px;">GLOBAL_POS: #<span id="rank-pos">999</span></div>
+    </div>
+</div>
+
+<div id="m-ctrl">
+    <div style="display:flex; gap:8px;"><div class="btn" id="b-l">L</div><div class="btn" id="b-r">R</div></div>
+    <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px;">
+        <div class="btn" id="b-t" style="border-color:#ff0; color:#ff0;">ELEM</div>
+        <div class="btn" id="b-s" style="border-color:#0cf; color:#0cf;">TIME</div>
+        <div class="btn" id="b-m" style="border-color:#fff;">MNT</div>
+        <div class="btn" id="b-g" style="border-color:#f0f;">SING</div>
+        <div class="btn" id="b-j" style="grid-column: span 2; width:100%; border-color:#f05;">SLASH</div>
+    </div>
+</div>
+
+<canvas id="c"></canvas>
+
+<script>
+    const canvas = document.getElementById("c");
+    const ctx = canvas.getContext("2d");
+    canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+
+    // --- DATABASES ---
+    const ELEMS = [
+        { n: 'API', c: '#ff4500', dmg: 2.5, trait: 'BURN' },
+        { n: 'AIR', c: '#1e90ff', dmg: 1.2, trait: 'HEAL' },
+        { n: 'TANAH', c: '#8b4513', dmg: 1.8, trait: 'ARMOR' },
+        { n: 'UDARA', c: '#f0f8ff', dmg: 1.0, trait: 'SPEED' },
+        { n: 'ES', c: '#00ffff', dmg: 1.5, trait: 'FREEZE' },
+        { n: 'PETIR', c: '#ffff00', dmg: 2.2, trait: 'CHAIN' },
+        { n: 'CAHAYA', c: '#ffffff', dmg: 2.0, trait: 'LASER' },
+        { n: 'KEGELAPAN', c: '#4b0082', dmg: 1.9, trait: 'STEAL' },
+        { n: 'ALAM', c: '#32cd32', dmg: 1.6, trait: 'ROOT' },
+        { n: 'LAHAR', c: '#ff0000', dmg: 3.0, trait: 'MELT' },
+        { n: 'PLASMA', c: '#ff00ff', dmg: 4.5, trait: 'PURE' }
+    ];
+
+    // --- GAME STATE ---
+    let d = JSON.parse(localStorage.getItem('rey_v34')) || { gold: 0, totalG: 0, eIdx: 0, mount: false };
+    let p = { x:200, y:0, vx:0, vy:0, w:40, h:60, hp:100, en:100, dir:1, atk:0, isSlow: false, shake: 0 };
+    let enemies = [], bhs = [], parts = [], world = { floor: canvas.height-140, grav: 0.8, camX: 0 };
+    const keys = {};
+
+    // --- FUNCTIONS ---
+    function save() { localStorage.setItem('rey_v34', JSON.stringify(d)); }
+
+    function switchElem() {
+        d.eIdx = (d.eIdx + 1) % ELEMS.length;
+        const e = ELEMS[d.eIdx];
+        const tag = document.getElementById('elem-tag');
+        tag.innerText = e.n; tag.style.background = e.c; tag.style.borderColor = e.c;
+        save();
+    }
+
+    function doAtk() {
+        if(p.atk > 0) return; p.atk = 15;
+        const e = ELEMS[d.eIdx];
+        p.shake = 8;
+        enemies.forEach((en, i) => {
+            if(Math.abs(p.x + p.dir*80 - en.x) < 120) {
+                en.hp -= 20 * e.dmg;
+                if(e.trait === 'HEAL') p.hp = Math.min(100, p.hp + 1);
+                spawnPart(en.x, en.y, e.c, 12);
+                if(en.hp <= 0) { enemies.splice(i,1); d.gold += 120; d.totalG += 120; save(); }
+            }
+        });
+    }
+
+    function spawnSingularity() {
+        if(d.gold >= 50) { d.gold -= 50; bhs.push({ x: p.x + p.dir*250, y: world.floor-80, life: 180 }); save(); }
+    }
+
+    function spawnPart(x,y,c,n){
+        for(let i=0; i<n; i++) parts.push({ x,y, vx:(Math.random()-0.5)*15, vy:(Math.random()-0.5)*15, l:25, c });
+    }
+
+    // --- INPUTS ---
+    window.onkeydown = (e) => {
+        keys[e.code] = true;
+        if(e.code === 'KeyT') switchElem();
+        if(e.code === 'KeyM') { d.mount = !d.mount; save(); }
+        if(e.code === 'ShiftLeft') p.isSlow = true;
+        if(e.code === 'KeyG') spawnSingularity();
+        if(e.code === 'KeyJ') doAtk();
+        if((e.code === 'Space' || e.code === 'KeyW') && p.y >= world.floor-p.h) p.vy = -18;
+    };
+    window.onkeyup = (e) => { 
+        keys[e.code] = false; 
+        if(e.code === 'ShiftLeft') p.isSlow = false; 
+    };
+
+    function bind(id, k, act) {
+        const el = document.getElementById(id);
+        el.addEventListener('touchstart', (e) => { e.preventDefault(); if(act) act(); else keys[k]=true; });
+        el.addEventListener('touchend', (e) => { e.preventDefault(); if(k==='ShiftLeft') p.isSlow=false; else keys[k]=false; });
+    }
+    bind('b-l','KeyA'); bind('b-r','KeyD'); bind('b-t', null, switchElem); bind('b-s', 'ShiftLeft', ()=>p.isSlow=true);
+    bind('b-m', null, ()=>{d.mount=!d.mount; save();}); bind('b-g', null, spawnSingularity); bind('b-j', null, doAtk);
+
+    // --- MAIN LOOP ---
+    function loop() {
+        const e = ELEMS[d.eIdx];
+        let ts = (p.isSlow && p.en > 0) ? 0.3 : 1.0;
+        
+        // HUD Updates
+        document.getElementById('mnt-tag').style.display = d.mount ? 'block' : 'none';
+        document.getElementById('time-tag').style.display = (p.isSlow && p.en > 0) ? 'block' : 'none';
+        
+        // Energy & Slowmo
+        if(p.isSlow && p.en > 0) p.en -= 0.7; else p.en = Math.min(100, p.en + 0.3);
+
+        // Movement
+        let speed = (d.mount ? 16 : 9) * (e.trait === 'SPEED' ? 1.4 : 1);
+        if(keys['KeyA']) { p.vx = -speed; p.dir = -1; } else if(keys['KeyD']) { p.vx = speed; p.dir = 1; } else p.vx *= 0.8;
+        
+        p.vy += world.grav; p.x += p.vx; p.y += p.vy;
+        if(p.y > world.floor-p.h) { p.y = world.floor-p.h; p.vy = 0; }
+        if(p.atk > 0) p.atk--;
+        if(p.shake > 0) p.shake *= 0.9;
+
+        // Enemies & Logic
+        if(enemies.length < 3 && Math.random() < 0.02) enemies.push({ x:p.x + 1000, y:world.floor-50, hp:150, max:150 });
+        enemies.forEach(en => {
+            let moveSpd = (e.trait === 'FREEZE' ? 0.6 : 2.5) * ts;
+            en.x += (p.x > en.x ? moveSpd : -moveSpd);
+            bhs.forEach(bh => { if(Math.abs(bh.x-en.x)<250) en.x += (bh.x-en.x)/25; });
+            if(Math.abs(p.x-en.x)<40) p.hp -= (e.trait === 'ARMOR' ? 0.1 : 0.4) * ts;
+        });
+
+        bhs.forEach((bh,i) => { bh.life--; if(bh.life<=0) bhs.splice(i,1); });
+        parts.forEach((pt,i) => { pt.x+=pt.vx; pt.y+=pt.vy; pt.l--; if(pt.l<=0) parts.splice(i,1); });
+
+        // Camera & Rank
+        world.camX += (p.x - canvas.width/2 - world.camX) * 0.1;
+        let rankNum = 999 - Math.floor(d.totalG/500);
+        document.getElementById('rank-pos').innerText = Math.max(1, rankNum);
+        document.getElementById('rank-name').innerText = d.totalG > 10000 ? "VOID OVERLORD" : "BRONZE CITIZEN";
+
+        draw();
+        requestAnimationFrame(loop);
+    }
+
+    function draw() {
+        const e = ELEMS[d.eIdx];
+        const sX = (Math.random()-0.5)*p.shake;
+        const sY = (Math.random()-0.5)*p.shake;
+
+        ctx.fillStyle = "#000"; ctx.fillRect(0,0,canvas.width, canvas.height);
+        ctx.save(); ctx.translate(-world.camX + sX, sY);
+
+        // Floor
+        ctx.fillStyle = "#050510"; ctx.fillRect(world.camX-200, world.floor, canvas.width+400, 200);
+        ctx.strokeStyle = e.c; ctx.lineWidth = 3; ctx.strokeRect(world.camX-200, world.floor, canvas.width+400, 3);
+
+        // Singularity
+        bhs.forEach(bh => {
+            let g = ctx.createRadialGradient(bh.x, bh.y, 0, bh.x, bh.y, 50);
+            g.addColorStop(0, "#000"); g.addColorStop(1, "#f0f");
+            ctx.fillStyle = g; ctx.beginPath(); ctx.arc(bh.x, bh.y, 50, 0, Math.PI*2); ctx.fill();
+        });
+
+        // Player
+        ctx.fillStyle = p.isSlow ? "#fff" : e.c; ctx.shadowBlur = 20; ctx.shadowColor = ctx.fillStyle;
+        ctx.fillRect(p.x, p.y, p.w, p.h);
+        if(d.mount) { ctx.fillStyle = "#fff"; ctx.fillRect(p.x-5, p.y+p.h-5, p.w+10, 5); }
+        if(p.atk > 0) { ctx.fillStyle = "#fff"; ctx.fillRect(p.x+(p.dir===1?40:-80), p.y-10, 80, 80); }
+
+        // Enemies
+        enemies.forEach(en => {
+            ctx.fillStyle = "#f05"; ctx.shadowBlur = 10; ctx.fillRect(en.x-25, en.y-25, 50, 50);
+            ctx.fillStyle = "#300"; ctx.fillRect(en.x-25, en.y-40, 50, 5);
+            ctx.fillStyle = "#f05"; ctx.fillRect(en.x-25, en.y-40, (en.hp/en.max)*50, 5);
+        });
+
+        parts.forEach(pt => { ctx.fillStyle = pt.c; ctx.fillRect(pt.x, pt.y, 3, 3); });
+
+        ctx.restore();
+        document.getElementById('hp-f').style.width = p.hp + "%";
+        document.getElementById('en-f').style.width = p.en + "%";
+        document.getElementById('gold').innerText = d.gold;
+    }
+
+    loop();
+</script>
+</body>
+  </html>
+  
