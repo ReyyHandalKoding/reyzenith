@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>REYZENITH: PRECISION (v40.0)</title>
+    <title>REYZENITH: SMOOTH_SYNC (v41.0)</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Syncopate:wght@700&family=Share+Tech+Mono&display=swap');
         body { margin: 0; background: #000; overflow: hidden; font-family: 'Share Tech Mono', monospace; color: #fff; touch-action: none; }
@@ -17,7 +17,7 @@
 </head>
 <body>
 <div id="ui">
-    <div style="font-family:'Syncopate'; font-size: 14px; color: #0f0;">PRECISION_v40</div>
+    <div style="font-family:'Syncopate'; font-size: 14px; color: #0f0;">SMOOTH_v41</div>
     <div id="e-tag" class="tag" style="background:#ff4500; color:#000;">API</div>
 </div>
 <div id="m-ui">
@@ -34,13 +34,12 @@
     const ctx = canvas.getContext("2d");
     canvas.width = window.innerWidth; canvas.height = window.innerHeight;
 
-    // --- SINKRONISASI ASET (v40.0) ---
+    // --- CONFIG ASET (PASTIKAN NAMA FILE BENAR) ---
     const spr = {
         idle: new Image(), run: new Image(), atkL: new Image(), atkR: new Image(),
-        w: 64, h: 64, frames: 8, cur: 0, tick: 0, spd: 6 
+        w: 64, h: 64, frames: 8, cur: 0, tick: 0, spd: 7 // spd diperlambat agar lebih halus
     };
 
-    // Alamat file sesuai folder GitHub kamu
     spr.idle.src = "assets/player_idle.jpg"; 
     spr.run.src  = "assets/player_run.png";  
     spr.atkL.src = "assets/player_atk_L.jpg"; 
@@ -53,23 +52,33 @@
     const keys = {};
 
     function switchE(){ d.eIdx=(d.eIdx+1)%ELEMS.length; document.getElementById('e-tag').innerText=ELEMS[d.eIdx].n; document.getElementById('e-tag').style.background=ELEMS[d.eIdx].c; }
-    function doAtk(){ if(p.state.startsWith('atk')) return; p.state = p.dir === -1 ? 'atkL' : 'atkR'; spr.cur = 0; if(navigator.vibrate) navigator.vibrate(40); }
+    
+    function doAtk(){ 
+        if(p.state.startsWith('atk')) return; 
+        p.state = p.dir === -1 ? 'atkL' : 'atkR'; 
+        spr.cur = 0; spr.tick = 0; // Reset total agar animasi mulai dari awal
+        if(navigator.vibrate) navigator.vibrate(40); 
+    }
 
+    // Input Logic
     window.onkeydown=(e)=>{ keys[e.code]=true; if(e.code==='KeyT') switchE(); if(e.code==='KeyJ') doAtk(); if((e.code==='Space'||e.code==='KeyW')&&p.y>=world.floor-p.h) p.vy=-16; };
     window.onkeyup=(e)=>{ keys[e.code]=false; };
     function bind(id,k,act){ let el=document.getElementById(id); el.addEventListener('touchstart',(e)=>{e.preventDefault(); if(act)act(); else keys[k]=true;}); el.addEventListener('touchend',(e)=>{e.preventDefault(); keys[k]=false;}); }
     bind('b-l','KeyA'); bind('b-r','KeyD'); bind('b-t',null,switchE); bind('b-j',null,doAtk);
 
     function loop(){
+        // Reset state jika tidak sedang attack
         if(!p.state.startsWith('atk')) {
             if(Math.abs(p.vx) > 0.5) p.state = 'run';
             else p.state = 'idle';
         }
 
+        // Move
         if(keys['KeyA']){ p.vx=-8; p.dir=-1; } else if(keys['KeyD']){ p.vx=8; p.dir=1; } else p.vx*=0.8;
         p.vy+=world.grav; p.x+=p.vx; p.y+=p.vy;
         if(p.y>world.floor-p.h){ p.y=world.floor-p.h; p.vy=0; }
 
+        // Anim Counter
         spr.tick++;
         if(spr.tick >= spr.spd) {
             spr.tick = 0; spr.cur++;
@@ -84,20 +93,35 @@
     }
 
     function draw(){
-        ctx.fillStyle="#000"; ctx.fillRect(0,0,canvas.width,canvas.height);
-        ctx.save(); ctx.translate(-world.camX, 0);
+        // Bersihkan layar sepenuhnya
+        ctx.fillStyle="#000"; 
+        ctx.fillRect(0,0,canvas.width,canvas.height);
         
-        ctx.fillStyle="#111"; ctx.fillRect(world.camX-100, world.floor, canvas.width+200, 200);
-        ctx.strokeStyle=ELEMS[d.eIdx].c; ctx.lineWidth=3; ctx.strokeRect(world.camX-100, world.floor, canvas.width+200, 3);
+        ctx.save(); 
+        ctx.translate(-world.camX, 0);
+        
+        // Lantai
+        ctx.fillStyle="#111"; 
+        ctx.fillRect(world.camX-100, world.floor, canvas.width+200, 200);
+        ctx.strokeStyle=ELEMS[d.eIdx].c; 
+        ctx.lineWidth=3; 
+        ctx.strokeRect(world.camX-100, world.floor, canvas.width+200, 3);
 
         let img = spr[p.state] || spr.idle;
         if(img.complete) {
             ctx.save();
+            // PIVOT: Pastikan posisi kaki tetap di lantai saat ganti animasi
             ctx.translate(p.x + p.w/2, p.y + p.h); 
-            // Mirror khusus RUN saat ke kanan
+            
+            // Mirror Run ke kanan (karena file run lari ke kiri)
             if(p.state === 'run' && p.dir === 1) ctx.scale(-1, 1);
             
-            ctx.drawImage(img, spr.cur * spr.w, 0, spr.w, spr.h, -p.w/2, -p.h, p.w, p.h);
+            // DrawImage dengan source rect yang presisi
+            ctx.drawImage(
+                img, 
+                Math.floor(spr.cur) * spr.w, 0, spr.w, spr.h, // Source
+                -p.w/2, -p.h, p.w, p.h // Destination
+            );
             ctx.restore();
         }
         ctx.restore();
